@@ -1,0 +1,313 @@
+from asyncio import timeout
+from datetime import datetime
+from pwn import *
+import pandas as pd
+import os
+import warnings
+from pathlib import Path
+
+warnings.simplefilter("ignore", BytesWarning)
+
+
+def run_fds2ascii(
+    project_name="",
+    dir="",
+    start_and_end_time="10 11",
+    index="1",
+    file_name_with_address="a.txt",
+):  # 用于执行fds2ascii
+    inputCode = {
+        1: project_name,
+        2: "2",
+        3: "1",
+        4: "n",
+        5: start_and_end_time,
+        6: "1",
+        7: index,
+        8: file_name_with_address,
+    }
+    # 指定文件夹路径
+
+    # 启动 PowerShell，并切换到指定文件夹
+    p = process(["powershell", "-NoExit", "-Command", f"cd {dir}"], shell=True)
+
+    # 输入 fds2ascii 命令
+    p.sendline("fds2ascii".encode("utf-8"))
+    output = p.recvuntil("Enter Job ID string (CHID):", timeout=5)
+    print(output.decode())
+
+    # Enter Job ID string (CHID):输入项目名称
+    print(inputCode[1])
+    p.sendline(inputCode[1].encode("utf-8"))
+    output = p.recvuntil("Enter 3", timeout=5)
+    print(output.decode())
+
+    # What type of file to parse?文件类型
+    print(inputCode[2])
+    p.sendline(inputCode[2].encode("utf-8"))
+    output = p.recvuntil("etc.)", timeout=5)
+    print(output.decode())
+
+    # Enter Sampling Factor for Data?
+    #  (1 for all data, 2 for every other point, etc.)
+    print(inputCode[3])
+    p.sendline(inputCode[3].encode("utf-8"))
+    output = p.recvuntil("as before.", timeout=5)
+    print(output.decode())
+
+    # Domain selection:
+    #    y - domain size is limited
+    #    n - domain size is not limited
+    #    z - domain size is not limited and z levels are offset
+    #    ya, na or za - slice files are selected based on type and location.
+    #        The y, n, z prefix are defined as before.
+    print(inputCode[4])
+    p.sendline(inputCode[4].encode("utf-8"))
+    output = p.recvuntil("averaging (s)", timeout=5)
+    print(output.decode())
+
+    # Enter starting and ending time for averaging (s)
+    print(inputCode[5])
+    p.sendline(inputCode[5].encode("utf-8"))
+    output = p.recvuntil("How many variables to read:", timeout=5)
+    print(output.decode())
+
+    print(inputCode[6])
+    p.sendline(inputCode[6].encode("utf-8"))
+    output = p.recvuntil("variable 1", timeout=5)
+    print(output.decode())
+
+    print(inputCode[7])
+    p.sendline(inputCode[7].encode("utf-8"))
+    output = p.recvuntil("name:", timeout=5)
+    print(output.decode())
+
+    print(inputCode[8])
+    p.sendline(inputCode[8].encode("utf-8"))
+    output = p.recvuntil("terminated.", timeout=5)
+    print(output.decode())
+
+    p.close()
+
+    print("done")
+
+
+project_name = "baiyunnan"
+folder_path = r"C:\Users\15275\Desktop\baiyunnan-40800"  # 工作目录
+start_and_end_time = "600 610"  # 取值区间 单位s
+
+current_time = datetime.now().strftime("%Y%m%d%H%M%S")
+file_name = f"{current_time}.txt"  # 创建文件名，扩展名可以是其他格式
+inputCode = {
+    1: project_name,
+    2: "2",
+    3: "1",
+    4: "n",
+    5: start_and_end_time,  # 取值时间
+    6: "1",
+    7: "1",  # index
+    8: file_name,
+}
+
+# 指定文件夹路径
+
+
+# 启动 PowerShell，并切换到指定文件夹
+p = process(["powershell", "-NoExit", "-Command", f"cd {folder_path}"], shell=True)
+
+# 输入 fds2ascii 命令
+p.sendline("fds2ascii".encode("utf-8"))
+output = p.recvuntil("Enter Job ID string (CHID):", timeout=5)
+print(output.decode())
+
+# Enter Job ID string (CHID):输入项目名称
+print(inputCode[1])
+p.sendline(inputCode[1].encode("utf-8"))
+output = p.recvuntil("Enter 3", timeout=5)
+print(output.decode())
+
+# What type of file to parse?文件类型
+print(inputCode[2])
+p.sendline(inputCode[2].encode("utf-8"))
+output = p.recvuntil("etc.)", timeout=5)
+print(output.decode())
+
+# Enter Sampling Factor for Data?
+#  (1 for all data, 2 for every other point, etc.)
+print(inputCode[3])
+p.sendline(inputCode[3].encode("utf-8"))
+output = p.recvuntil("as before.", timeout=5)
+print(output.decode().encode("utf-8"))
+
+# Domain selection:
+#    y - domain size is limited
+#    n - domain size is not limited
+#    z - domain size is not limited and z levels are offset
+#    ya, na or za - slice files are selected based on type and location.
+#        The y, n, z prefix are defined as before.
+print(inputCode[4])
+p.sendline(inputCode[4].encode("utf-8"))
+output = p.recvuntil("averaging (s)", timeout=5)
+print(output.decode())
+
+# Enter starting and ending time for averaging (s)
+print(inputCode[5])
+p.sendline(inputCode[5].encode("utf-8"))
+slices = (p.recvuntil("How many variables to read:", timeout=5)).decode(
+    "utf-8"
+)  # ！！！！！！！！！！！
+# 去掉最后一行
+lines = slices.strip().split("\n")
+slices_no_line = lines[:-1]  # 去掉最后一行
+data = []
+clean_slices = slices_no_line
+for i in range(0, len(clean_slices), 2):
+    # 第一行解析编号、变量名、文件名
+    header = clean_slices[i].strip().split("  ")
+    item_id = int(header[0])
+    variable = header[1]
+    file_name = header[2]
+
+    # 第二行解析 slice bounds
+    bounds = list(map(float, clean_slices[i + 1].strip().split()[2:]))
+
+    # 保存为字典
+    data.append(
+        {
+            "ID": item_id,
+            "Variable": variable,
+            "File": file_name,
+            "X_min": bounds[0],
+            "X_max": bounds[1],
+            "Y_min": bounds[2],
+            "Y_max": bounds[3],
+            "Z_min": bounds[4],
+            "Z_max": bounds[5],
+        }
+    )
+print(data)
+df = pd.DataFrame(data)  # 用于分析数据
+p.close()
+print(df)
+# 按照变量名分组
+grouped_variable = df.groupby("Variable")
+
+# 获取所有组的名称
+group_names = list(grouped_variable.groups.keys())
+print(group_names)
+
+# 访问每组数据
+for variable_name in group_names:
+    group = grouped_variable.get_group(variable_name)  # 获取变量分组中的数据
+    # 创建变量文件夹
+    current_dir = Path(__file__).parent  # 1 获取脚本所在目录
+    variable_folder_name = f"{variable_name}"  # 2 文件夹名
+    variable_folder_path = current_dir / variable_folder_name  # 3 文件夹路径
+    variable_folder_path.mkdir(exist_ok=True)  # 4 创建变量文件夹
+    # X切片
+    X_slice = group[group["X_min"] == group["X_max"]]
+    if not X_slice.empty:
+
+        X_slice_grouped = X_slice.groupby("X_min")
+
+        # 获取切片分组名称
+        x_slice_group_names = list(X_slice_grouped.groups.keys())
+        print(x_slice_group_names)
+        # 访问X切片X分组中的数据
+
+        # 创建x/y/y文件夹
+        # 文件夹名
+        x_slice_folder_name = "X_slice"
+        x_slice_folder_path = variable_folder_path / x_slice_folder_name
+        x_slice_folder_path.mkdir(exist_ok=True)
+
+        for x_name in x_slice_group_names:
+            x_group = X_slice_grouped.get_group(x_name)
+            ID_list = x_group["ID"].tolist()
+            print("x_name:", x_name)
+
+            for i in ID_list:
+                x_slice_file_path = x_slice_folder_path / f"x={x_name}m_ID{i}.txt"
+                run_fds2ascii(
+                    project_name,
+                    folder_path,
+                    start_and_end_time,
+                    str(i),
+                    str(x_slice_file_path),
+                )
+
+    else:
+        print("X空")
+    # Y切片
+
+    Y_slice = group[group["Y_min"] == group["Y_max"]]
+    if not Y_slice.empty:
+
+        Y_slice_grouped = Y_slice.groupby("Y_min")
+
+        # 获取切片分组名称
+        y_slice_group_names = list(Y_slice_grouped.groups.keys())
+        print(y_slice_group_names)
+        # 访问X切片X分组中的数据
+
+        # 创建x/y/y文件夹
+        # 文件夹名
+        y_slice_folder_name = "Y_slice"
+        y_slice_folder_path = variable_folder_path / y_slice_folder_name
+        y_slice_folder_path.mkdir(exist_ok=True)
+
+        for y_name in y_slice_group_names:
+            y_group = Y_slice_grouped.get_group(y_name)
+            ID_list = y_group["ID"].tolist()
+            print("y_name:", y_name)
+
+            for i in ID_list:
+                y_slice_file_path = y_slice_folder_path / f"y={y_name}m_ID{i}.txt"
+                run_fds2ascii(
+                    project_name,
+                    folder_path,
+                    start_and_end_time,
+                    str(i),
+                    str(y_slice_file_path),
+                )
+
+    else:
+        print("Y空")
+
+    # Z切片
+    Z_slice = group[group["Z_min"] == group["Z_max"]]
+    if not Z_slice.empty:
+
+        Z_slice_grouped = Z_slice.groupby("Z_min")
+
+        # 获取切片分组名称
+        z_slice_group_names = list(Z_slice_grouped.groups.keys())
+        print(z_slice_group_names)
+        # 访问z切片z分组中的数据
+
+        # 创建x/y/y文件夹
+        # 文件夹名
+        z_slice_folder_name = "Z_slice"
+        z_slice_folder_path = variable_folder_path / z_slice_folder_name
+        z_slice_folder_path.mkdir(exist_ok=True)
+
+        for z_name in z_slice_group_names:
+            z_group = Z_slice_grouped.get_group(z_name)
+            ID_list = z_group["ID"].tolist()
+            print("z_name:", z_name)
+
+            for i in ID_list:
+                z_slice_file_path = z_slice_folder_path / f"z={z_name}m_ID{i}.txt"
+                run_fds2ascii(
+                    project_name,
+                    folder_path,
+                    start_and_end_time,
+                    str(i),
+                    str(z_slice_file_path),
+                )
+                # print(str(z_slice_file_path))
+
+            print(ID_list)
+
+    else:
+        print("Z空")
